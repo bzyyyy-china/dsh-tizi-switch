@@ -12,7 +12,7 @@
  * Modules are imported through `DSH_INSTALL_DIR` rather than by bare specifier: a locally linked
  * bundle sits outside the install tree, and the profile's own node_modules holds only its own
  * bundles, so Node would not resolve `@deepseek-ai/*` from here.
- * @module @local/dsh-tizi-switch
+ * @module dsh-tizi-switch
  */
 
 import { connect } from 'node:net'
@@ -149,7 +149,8 @@ export async function apply(ctx, rawConfig) {
       if (active !== undefined) return `代理已经是启用状态：${active.proxyUrl}`
       const up = await reachable()
       if (!up) {
-        return `未启用：${config.host}:${config.port} 没有响应，请先启动 Clash Verge。当前仍为直连。`
+        return `未启用：${config.host}:${config.port} 没有响应，请先启动你的代理客户端`
+          + `（Clash Verge / v2rayN / sing-box 等，端口需与配置一致）。当前仍为直连。`
       }
       const proxyPackage = await importInstalled('@deepseek-ai/dsh-http-proxy', 'lib/index.js')
       const env = {

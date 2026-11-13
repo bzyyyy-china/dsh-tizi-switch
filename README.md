@@ -2,7 +2,8 @@
 
 **在 DeepSeek Harness 运行中随时切换出网代理 —— 不重启，不改系统代理。**
 
-中文 | [English](README.en.md)
+> 本项目主要面向中文用户：插件本身以中文提供交互，工具的返回文案也是中文。
+> 英文说明见 [README.en.md](README.en.md)，仅供阅读参考。
 
 ---
 
@@ -41,7 +42,16 @@ dsh plugin add /path/to/dsh-tizi-switch
 
 ## 配置
 
-默认代理地址 `127.0.0.1:7897`（Clash Verge 的 `mixed-port`）。在 profile 的 `cordis.patch.yml` 里覆盖：
+默认代理地址 `127.0.0.1:7897`（Clash Verge 的 `mixed-port`）。**如果你用的是别的代理客户端，端口通常不同**，常见值：
+
+| 客户端 | 常见 HTTP 端口 |
+|---|---|
+| Clash Verge / mihomo | `7897`（`mixed-port`） |
+| Clash for Windows | `7890` |
+| v2rayN | `10809`（HTTP）、`10808`（SOCKS） |
+| sing-box / Hiddify | `2080` 或 `7890` |
+
+在 profile 的 `cordis.patch.yml` 里覆盖：
 
 ```yaml
 - id: tizi-switch
@@ -51,9 +61,11 @@ dsh plugin add /path/to/dsh-tizi-switch
     probeTimeoutMs: 1200
 ```
 
+> 注意：本插件只接受 `http://` 代理。填 SOCKS 端口会连不上 —— 请填客户端的**混合端口或 HTTP 端口**。
+
 ## 设计取舍
 
-**为什么切换前要探测端口。** 指向一个没人监听的端口时，请求会以 `ECONNREFUSED` 快速失败。如果无脑装上代理，用户忘了开 Clash 就等于把 DSH 弄瘫。所以 `proxy_on` 先做一次 1.2 秒的 TCP 探测，探不到就拒绝、并且**不改动当前路由**。
+**为什么切换前要探测端口。** 指向一个没人监听的端口时，请求会以 `ECONNREFUSED` 快速失败。如果无脑装上代理，用户忘了开代理客户端就等于把 DSH 弄瘫。所以 `proxy_on` 先做一次 1.2 秒的 TCP 探测，探不到就拒绝、并且**不改动当前路由**。
 
 **为什么只改进程内 dispatcher。** DSH 官方文档明确写了它不读操作系统的代理设置。本插件沿用这个边界：只替换 undici 的全局 dispatcher，不碰注册表、不碰系统代理开关。因此它和你的浏览器互不影响 —— 你可以单独给 DSH 开梯子，浏览器照常。
 
