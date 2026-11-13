@@ -48,4 +48,4 @@ DSH 只在**启动时**读一次 `HTTP_PROXY` / `HTTPS_PROXY`。这带来两个�
 
 ## 许可证
 
-[MIT](../LICENSE)
+[MIT](https://github.com/bzyyyy-china/dsh-tizi-switch/blob/main/LICENSE)

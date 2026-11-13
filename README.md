@@ -3,7 +3,7 @@
 **在 DeepSeek Harness 运行中随时切换出网代理 —— 不重启，不改系统代理。**
 
 > 本项目主要面向中文用户：插件本身以中文提供交互，工具的返回文案也是中文。
-> 英文说明见 [README.en.md](README.en.md)，仅供阅读参考。
+> 英文说明见 [README.en.md](https://github.com/bzyyyy-china/dsh-tizi-switch/blob/main/README.en.md)，仅供阅读参考。
 
 ---
 
@@ -92,4 +92,4 @@ dsh plugin add /path/to/dsh-tizi-switch
 
 ## 许可证
 
-[MIT](LICENSE)
+[MIT](https://github.com/bzyyyy-china/dsh-tizi-switch/blob/main/LICENSE)

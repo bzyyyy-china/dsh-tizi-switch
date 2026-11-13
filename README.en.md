@@ -2,7 +2,7 @@
 
 **Flip this Harness instance's outbound proxy at runtime — no restart, no system-proxy change.**
 
-[中文](README.md) | English
+[中文](https://github.com/bzyyyy-china/dsh-tizi-switch/blob/main/README.md) | English
 
 ---
 
@@ -78,4 +78,4 @@ When the plugin is linked locally or installed into a profile, the profile's own
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://github.com/bzyyyy-china/dsh-tizi-switch/blob/main/LICENSE)
