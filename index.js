@@ -84,7 +84,11 @@ function readConfig(raw) {
   const probeTimeoutMs = Number.isInteger(raw?.probeTimeoutMs) && raw.probeTimeoutMs > 0
     ? raw.probeTimeoutMs
     : 1200
-  return { host, port, probeTimeoutMs }
+  // 0 disables the health check, leaving the switch on until the user turns it off.
+  const healthCheckMs = Number.isInteger(raw?.healthCheckMs) && raw.healthCheckMs >= 0
+    ? raw.healthCheckMs
+    : 3000
+  return { host, port, probeTimeoutMs, healthCheckMs }
 }
 
 /**
@@ -104,18 +108,59 @@ export async function apply(ctx, rawConfig) {
   // turning the switch off must run it, and turning it on again installs a fresh policy.
   let active
 
-  // Unloading the plugin must not leave a proxy installed behind a disposed registration. The close
-  // is fire-and-forget here because a plugin teardown cannot wait on in-flight request draining.
-  ctx.effect(() => () => {
+  // The health timer that drops the proxy when the client disappears. Registered as an effect so
+  // unloading the plugin also stops the timer.
+  let healthTimer
+
+  /**
+   * Drop the installed proxy and return to direct connections.
+   *
+   * Clears the timer first: the poll that noticed the failure must not keep running while the
+   * switch is off, or it would keep probing a client the user already closed.
+   * @returns when the proxy has been released.
+   */
+  const release = () => {
+    if (healthTimer !== undefined) {
+      clearInterval(healthTimer)
+      healthTimer = undefined
+    }
     const current = active
+    if (current === undefined) return
     active = undefined
-    if (current !== undefined) void current.dispose().catch(() => {})
-  })
+    // The disposer restores the dispatcher synchronously at its head; only the trailing close
+    // waits, and a proxy client that just vanished has nothing left to drain.
+    void current.dispose().catch(() => {})
+  }
+
+  // Unloading the plugin must not leave a proxy installed behind a disposed registration, nor a
+  // timer probing a port nobody asked about any more.
+  ctx.effect(() => () => { release() })
 
   const proxyUrl = `http://${config.host}:${config.port}`
 
   // One probe shared by every tool, so status and switching never disagree about the port.
   const reachable = () => probePort(config.host, config.port, config.probeTimeoutMs)
+
+  /**
+   * Watch the proxy port while the switch is on.
+   *
+   * The client can be closed at any moment, and once installed the policy points every request at
+   * its port: a dead port fails each request with ECONNREFUSED in milliseconds. Polling is cheap
+   * here because a loopback connect either answers or refuses almost immediately, and the poll is
+   * the only way to notice a departure the plugin never controls.
+   */
+  const startHealthCheck = () => {
+    if (healthTimer !== undefined) return
+    healthTimer = setInterval(() => {
+      if (active === undefined) return
+      void reachable().then((up) => {
+        // A probe that started while the switch was on must not release a newer installation.
+        if (!up && active !== undefined) release()
+      }).catch(() => {})
+    }, config.healthCheckMs)
+    // Never hold the process open just to poll a port.
+    healthTimer.unref?.()
+  }
 
   const textOutput = {
     schema: { type: 'string' },
@@ -133,7 +178,10 @@ export async function apply(ctx, rawConfig) {
       const up = await reachable()
       const state = active === undefined ? '直连（未启用代理）' : `已启用代理 ${active.proxyUrl}`
       const reach = up ? '可连接' : '不可连接'
-      return `当前状态：${state}\n代理 ${proxyUrl}：${reach}`
+      const watch = config.healthCheckMs > 0
+        ? `每 ${Math.round(config.healthCheckMs / 100) / 10} 秒自动检测，客户端退出后自动回直连`
+        : '自动检测已关闭'
+      return `当前状态：${state}\n代理 ${proxyUrl}：${reach}\n自动检测：${watch}`
     },
   }))
 
@@ -162,6 +210,7 @@ export async function apply(ctx, rawConfig) {
       }
       const dispose = await proxyPackage.installProxyFromEnvironment(env, () => {})
       active = { proxyUrl, dispose }
+      startHealthCheck()
       return `已启用代理：${proxyUrl}。从现在起本实例的请求走该代理，无需重启。`
     },
   }))
@@ -174,15 +223,8 @@ export async function apply(ctx, rawConfig) {
     parameters: {},
     output: textOutput,
     async execute() {
-      const current = active
-      if (current === undefined) return '代理本来就是关闭状态，当前为直连。'
-      // Clear first: the next request must see direct routing even while the previous agent drains.
-      active = undefined
-      // The install restores the previous dispatcher and the ambient proxy environment synchronously
-      // at the head of its disposer; only the trailing `agent.close()` waits. Awaiting the whole
-      // disposer would therefore stall this tool behind in-flight connections while routing had in
-      // fact already switched back, so the close is left to settle on its own.
-      void current.dispose().catch(() => {})
+      if (active === undefined) return '代理本来就是关闭状态，当前为直连。'
+      release()
       return '已关闭代理，恢复直连，无需重启。'
     },
   }))
