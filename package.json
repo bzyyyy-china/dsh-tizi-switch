@@ -1,0 +1,40 @@
+{
+  "name": "dsh-tizi-switch",
+  "version": "1.0.0",
+  "description": "梯子开关 — 在 DeepSeek Harness 运行中随时切换出网代理，不重启、不改系统代理。",
+  "type": "module",
+  "license": "MIT",
+  "author": "",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "proxy",
+    "clash",
+    "switch"
+  ],
+  "exports": {
+    ".": "./index.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "locale",
+    "docs",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "compatibility": {
+      "dshReleases": {
+        "0.2.2-rc.2+": "compatible"
+      }
+    }
+  }
+}

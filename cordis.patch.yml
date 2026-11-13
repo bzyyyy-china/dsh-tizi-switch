@@ -1,0 +1,4 @@
+- insert:
+    - id: tizi-switch
+      name: dsh-tizi-switch
+      config: {}

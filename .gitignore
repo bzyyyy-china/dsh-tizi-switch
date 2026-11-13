@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+logs/
+
+# Editor and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Package archives
+*.tgz
+*.tar.gz
+
+# Test and coverage
+coverage/
+.nyc_output/
+
+# Temporary
+tmp/
+temp/
+*.bak
+*.bak-*
