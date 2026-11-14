@@ -87,15 +87,29 @@ function probePort(host, port, timeoutMs) {
 const DEFAULT_PROXY = { host: '127.0.0.1', port: 7897 }
 
 /**
- * Hard ceiling on detection passes per process.
+ * Minimum gap between two detection passes triggered by a cached miss.
  *
- * Detection reads the environment, the Windows system proxy, and the fifteen known ports. That is a
- * handful of loopback connects, but a user repeatedly pressing "turn on the proxy" with no client
- * running would repeat it indefinitely, and a plugin that keeps sweeping a machine is precisely the
- * behavior this design exists to avoid. One run at load plus a few re-detections after a client
- * switch covers every real case.
+ * A miss means the client was not running when the plugin last looked, and the common case is that
+ * the user started DSH first and the client second — so the next `proxy_on` must look again, or the
+ * plugin stays useless for the rest of the process. Retrying on every call would re-sweep the fifteen
+ * known ports on each press, so a short cooldown collapses a burst of attempts into one pass while
+ * still letting a genuine retry through.
+ *
+ * The value is small on purpose. It only has to absorb a double-click or a scripted burst; a user who
+ * starts the client and asks again a second later should not be told to try again later. A pass is a
+ * handful of loopback connects, so even a few per minute cost nothing worth protecting.
  */
-const MAX_DETECTION_RUNS = 3
+const RETRY_COOLDOWN_MS = 1500
+
+/**
+ * Hard ceiling on detection passes per process, as a last-resort guard.
+ *
+ * A pass reads the environment, the Windows system proxy, and the fifteen known ports: a handful of
+ * loopback connects, not a sweep. The cooldown is what keeps the rate sane for a human; this ceiling
+ * only stops a pathological caller (a script invoking the tool in a loop) from running it without
+ * limit.
+ */
+const MAX_DETECTION_RUNS = 10
 
 /**
  * Validate and normalise the row's config. Declared here so a deployment can override the proxy
@@ -181,14 +195,13 @@ export async function apply(ctx, rawConfig) {
     ? undefined
     : { host: config.host, port: config.port }
 
-  // Cached answers, so detection happens at most once per plugin load. `detected` holds the whole
-  // discovery result; `detecting` is the run in flight, shared by every caller that arrives while it
-  // is going; `configuredVerdict` holds the verdict on a port the user pinned; `retriedDetection`
-  // records that the one allowed retry after a load-time miss has been spent.
+  // Cached answers. `detected` holds the whole discovery result; `detecting` is the run in flight,
+  // shared by every caller that arrives while it is going; `configuredVerdict` holds the verdict on a
+  // port the user pinned; `lastDetectionAt` paces the re-detection a cached miss may trigger.
   let detected
   let detecting
   let configuredVerdict
-  let retriedDetection = false
+  let lastDetectionAt = 0
 
   // How many times detection has run in this process, exposed in the report so a user can confirm the
   // plugin probes at load rather than on every switch.
@@ -260,8 +273,14 @@ export async function apply(ctx, rawConfig) {
     }
     // A cached success stands while its port still answers. A cached address whose port has gone quiet
     // is re-detected, because the user may have switched clients and the new one listens elsewhere;
-    // without this the plugin would refuse forever while a working proxy was running. A cached miss
-    // gets one retry for the same reason (DSH is often started before the client).
+    // without this the plugin would refuse forever while a working proxy was running. A cached miss is
+    // re-detected too: DSH is usually started before the client, so refusing on the strength of a
+    // load-time miss would leave the plugin useless for the rest of the process.
+    //
+    // Rate is governed by a cooldown rather than a one-shot allowance. A one-shot allowance sounds
+    // stricter, but it is spent by the first failed attempt, so a user who tries once before starting
+    // the client could never succeed afterwards — a bug this shipped with. The cooldown instead
+    // collapses a burst of presses into one pass and still allows a real retry seconds later.
     //
     // No retry scans. The scan pass is the behaviour that looks like port scanning, so it runs at
     // most once per process, on the very first detection and only if the user enabled it.
@@ -276,21 +295,15 @@ export async function apply(ctx, rawConfig) {
     // Is the cached answer still true? A cached endpoint that no longer answers must not be installed.
     const cachedStale = detected !== undefined && detected.endpoint !== undefined
       && !await probePort(detected.endpoint.host, detected.endpoint.port, config.probeTimeoutMs)
-    // Re-detection is bounded. A user whose client is not running could press "turn on the proxy"
-    // repeatedly, and each attempt must not launch another sweep of the machine — the whole point of
-    // caching is that this plugin never behaves like a port scanner, and an unbounded retry would.
     const budgetLeft = detectionRuns < MAX_DETECTION_RUNS
-    const mayRetry = budgetLeft
-      && (detected === undefined
-        || cachedStale
-        || (detected.endpoint === undefined && !retriedDetection))
+    const cooled = Date.now() - lastDetectionAt >= RETRY_COOLDOWN_MS
+    const wantsDetect = detected === undefined || cachedStale || detected.endpoint === undefined
+    const mayRetry = budgetLeft && cooled && wantsDetect
     if (detected !== undefined && !mayRetry) {
       return { endpoint: detected.endpoint, configuredProbe: undefined, detection: detected }
     }
-    // A miss may retry once; a stale hit may re-detect freely, because that is the user changing
-    // clients rather than the plugin repeatedly scanning on its own.
-    if (detected?.endpoint === undefined && detected !== undefined) retriedDetection = true
     detectionRuns += 1
+    lastDetectionAt = Date.now()
     // The scan pass belongs to the first detection only. It is the expensive, alarming part, and the
     // point of caching is that the plugin never looks like a port scanner. Later runs — including the
     // re-detection after a client switch — read the environment, the system proxy, and the known
@@ -355,8 +368,9 @@ export async function apply(ctx, rawConfig) {
         ? `每 ${Math.round(config.healthCheckMs / 100) / 10} 秒探测一次已启用的端口，客户端退出后自动回直连`
         : '自动检测已关闭'
       const detection = config.port === undefined
-        ? `自动探测（本次已探测 ${detectionRuns}/${MAX_DETECTION_RUNS} 次；仅在加载时和端口失效时探测，`
-          + `不会每次开代理都重扫，${scanUsed ? '已用过一次全端口扫描' : '不做全端口扫描'}）`
+        ? `自动探测（本次已探测 ${detectionRuns} 次；仅在加载时、端口失效时或客户端稍后启动时探测，`
+          + `两次探测至少间隔 ${Math.round(RETRY_COOLDOWN_MS / 1000)} 秒，`
+          + `${scanUsed ? '已用过一次全端口扫描' : '不做全端口扫描'}）`
         : '已指定端口，不自动探测（调 proxy_detect 可查看本机实际可用端口）'
       return `当前状态：${state}\n代理地址：${address}\n端口连通性：${reach}\n端口来源：${detection}\n自动检测：${watch}`
     },
@@ -425,7 +439,12 @@ export async function apply(ctx, rawConfig) {
           ? ['未启用：没有找到可用的本地 HTTP 代理端口，当前仍为直连。']
           : [`未启用：配置里指定的 ${config.host}:${config.port} ${describeProbe(configuredProbe)}，当前仍为直连。`]
         if (detection !== undefined) {
-          lines.push('探测结果：', ...formatDetection(detection, config.reportLimit))
+          const detail = formatDetection(detection, config.reportLimit)
+          // An empty result list means nothing was even listening, which is the common case when the
+          // client is not running. Printing a "results:" header with nothing under it says less than
+          // one sentence stating that finding.
+          if (detail.length > 0) lines.push('探测详情：', ...detail)
+          else lines.push('探测范围：环境变量、Windows 系统代理、15 个常见客户端端口，均无响应。')
           const socks = detection.results.find((result) => result.kind === 'socks5' || result.kind === 'socks4')
           if (socks !== undefined) {
             lines.push(`${socks.host}:${socks.port} 是 SOCKS 端口，DSH 只支持 HTTP 代理；`

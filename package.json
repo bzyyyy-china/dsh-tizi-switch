@@ -1,6 +1,6 @@
 {
   "name": "dsh-tizi-switch",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "梯子开关 — 在 DeepSeek Harness 运行中随时切换出网代理，自动探测本机代理端口，不重启、不改系统代理。",
   "type": "module",
   "license": "MIT",
