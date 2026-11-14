@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Proxy switch",
-    "description": "Routes this instance's outbound requests through a local proxy client when a network is unreachable directly, and stays direct otherwise. Takes effect immediately, with no restart and no change to the operating system proxy.",
+    "description": "Routes this instance's outbound requests through a local proxy client when a network is unreachable directly, and stays direct otherwise. Finds the proxy port on its own, so Clash, v2rayN, and sing-box all work without configuration. Takes effect immediately, with no restart and no change to the operating system proxy.",
     "detail": "docs/DETAIL.md"
   }
 }
